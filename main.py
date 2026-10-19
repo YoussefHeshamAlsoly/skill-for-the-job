@@ -93,11 +93,14 @@ def download_datasets():
 
     kaggle.api.authenticate()
 
-    dataset_slug = 'chandranshbinjola/job-listings'
-    download_path = './datasets'
-
-    kaggle.api.dataset_download_files(dataset_slug, path=download_path, unzip=True)
-    print(f"Dataset downloaded to {download_path}")
+    kaggle.api.dataset_download_file(
+        "chandranshbinjola/job-listings",
+        file_name="jobs.csv",
+        path="./datasets",
+        force=True,
+    )
+    
+    print("jobs.csv downloaded")
 
 
 def driver():
