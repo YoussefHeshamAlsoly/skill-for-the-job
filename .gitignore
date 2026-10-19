@@ -1,6 +1,9 @@
 # Datasets directories
 datasets
 
+# random tst.py files
+*tst.py
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
