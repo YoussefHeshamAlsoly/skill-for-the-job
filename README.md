@@ -199,6 +199,42 @@ The reworked dataset is roughly a fifth of the raw export and is read back in a
 fraction of the time, which matters because the raw file is a few hundred
 megabytes.
 
+## Project layout
+
+`main.py` is only the entry point; the work lives in the `skillforjob`
+package, one module per job:
+
+```
+main.py                     entry point (python main.py ...)
+skillforjob/
+  __init__.py               package documentation
+  __main__.py               python -m skillforjob
+  cli.py                    argument parser and the dispatch of every stage
+  config.py                 paths, constants and the JSON backed configuration
+  logs.py                   the shared logger
+  files.py                  atomic writes and human readable sizes
+  deps.py                   optional dependency handling (pandas, kaggle, ...)
+  interpreter.py            finding the Python interpreter that has the packages
+  dataset.py                update / rework / stats: the data pipeline
+  dates.py                  parsing and applying the date ranges
+  matching.py               matching a job title against the dataset
+  skills.py                 the skill histogram (ASCII, JSON and PNG)
+  diagnostics.py            the doctor command
+```
+
+The modules only depend on each other downwards, there are no import cycles:
+
+```
+cli ──► dataset ──► config ──► files
+  │        │                     ▲
+  │        ├──► deps ───────────┘
+  │        └──► logs
+  ├──► skills ──► matching ──► deps
+  │        └──► dates
+  ├──► diagnostics ──► deps
+  └──► interpreter ──► config
+```
+
 ## Configuration
 
 `config.json` holds the state of the pipeline:
