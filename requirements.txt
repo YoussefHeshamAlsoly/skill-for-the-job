@@ -2,3 +2,4 @@ kaggle >= 2.2.4
 pandas >= 2.0
 python-dotenv >= 1.0
 matplotlib >= 3.7
+flask >= 3.0

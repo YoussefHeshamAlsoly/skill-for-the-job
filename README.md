@@ -38,6 +38,7 @@ Dependencies:
   matplotlib   3.11.2     ok
   kaggle       2.2.4      ok
   dotenv       unknown    ok
+  flask        3.1.3      ok
 ```
 
 The command prints the interpreter that runs the script, whether the
@@ -104,6 +105,7 @@ python main.py rework         # rebuild the normalised dataset
 python main.py rework --preview 10
 python main.py stats          # summary of the dataset
 python main.py doctor         # interpreter, dependencies and dataset status
+python main.py serve          # start the web interface
 python main.py skills "software engineer"
 python main.py skills "software engineer" --range "2026-01-01 new" --loose
 ```
@@ -186,6 +188,64 @@ wins: `exact phrase` → `all keywords` → `keyword overlap` → `fuzzy` (for
 typos).  The tier that was used is always shown, and when a looser match
 would cover noticeably more jobs the script says so.
 
+## Web interface
+
+The command line is great for scripts, but not for exploring.  The web
+interface puts every option of the `skills` command on the page:
+
+```bash
+python main.py serve
+```
+
+```
+INFO web interface on http://127.0.0.1:5000
+```
+
+Open <http://127.0.0.1:5000> in the browser.  `python main.py serve --open`
+opens it right away, `--host 0.0.0.0` makes it reachable from the network and
+`--port` moves it to another port.  The page can also be started with
+`python -m skillforjob.web`.
+
+The page is dark by default (a sun in the header switches to the light theme)
+and every control has a help text that appears when you hover or focus it.
+
+| Control | What it does |
+| --- | --- |
+| Job title | the title to look for, with suggestions from the dataset |
+| Seniority | only look at one level (any, intern, junior, mid, senior, lead, staff+, manager+) |
+| Date range | all dates, the last 30/90 days, the last 12 months, this year, last year, a single year or a custom range |
+| Match mode | strict (only the exact title) or loose (also the keyword overlap) |
+| Keyword overlap | how many keywords of the title have to appear, 10% - 100% |
+| Skills to show | how many skills the histogram shows |
+| Job titles | show the breakdown of the matched titles and how many of them |
+| Export JSON | download the result as a JSON file |
+| Download PNG | download the histogram as a PNG image |
+
+The date presets are turned into the same range strings that `--range` uses,
+so both interfaces filter the dataset in exactly the same way.
+
+The result can be shared: the address bar keeps the current search
+(`?q=software+engineer&level=senior&loose=1&top=30`) and opens it again.
+
+### The API
+
+The page talks to a small JSON API, which can also be used directly:
+
+| Route | What it does |
+| --- | --- |
+| `GET /api/meta` | what the dataset holds: rows, levels, date bounds, popular titles |
+| `GET /api/titles?q=chef` | the job titles that contain the search term |
+| `POST /api/skills` | the analysis of one job title |
+| `POST /api/plot` | the same analysis as a PNG |
+
+```bash
+curl -X POST http://127.0.0.1:5000/api/skills \
+  -H "Content-Type: application/json" \
+  -d '{"target": "software engineer", "level": "senior", "loose": true, "top": 5}'
+```
+
+Errors come back as `{"error": "..."}` with the matching status code.
+
 ## How it works
 
 | Stage | What it does |
@@ -194,6 +254,7 @@ would cover noticeably more jobs the script says so.
 | `rework` | Reads only the columns that are needed, normalises the skills (`;` separated → trimmed, lowercased, de-duplicated, sorted, joined with `\|`), fills in missing levels from the job title and writes `datasets/jobs_reworked.csv`. The result is cached and only rebuilt when the raw export changed. |
 | `stats` | Prints the level distribution, the most common skills and the posting dates of the dataset. |
 | `skills` | Matches a target title against the reworked dataset and histograms the skills of the matching jobs. |
+| `serve` | Starts the web interface: the same analysis behind a page with all the options on it. |
 
 The reworked dataset is roughly a fifth of the raw export and is read back in a
 fraction of the time, which matters because the raw file is a few hundred
@@ -220,6 +281,13 @@ skillforjob/
   matching.py               matching a job title against the dataset
   skills.py                 the skill histogram (ASCII, JSON and PNG)
   diagnostics.py            the doctor command
+  web/                      the web interface
+    __init__.py             create_app() and run_server()
+    __main__.py             python -m skillforjob.web
+    app.py                  the Flask application and the JSON API
+    templates/index.html    the single page
+    static/style.css        the dark theme
+    static/app.js           the page logic
 ```
 
 The modules only depend on each other downwards, there are no import cycles:
@@ -232,6 +300,7 @@ cli ──► dataset ──► config ──► files
   ├──► skills ──► matching ──► deps
   │        └──► dates
   ├──► diagnostics ──► deps
+  ├──► web ──► skills, dataset, dates
   └──► interpreter ──► config
 ```
 

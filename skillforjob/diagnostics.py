@@ -51,6 +51,7 @@ def doctor() -> int:
         ("matplotlib", "writing the plot"),
         ("kaggle", "downloading the dataset"),
         ("dotenv", "reading the .env file"),
+        ("flask", "running the web interface"),
     ):
         try:
             imported = import_quietly(module)

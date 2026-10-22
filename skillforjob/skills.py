@@ -1,13 +1,14 @@
 """The skill histogram of a matched job title.
 
-``find_skills`` is the entry point of this module: it matches the target
-title, counts the skills of the matching jobs and renders the result as an
-ASCII histogram, as JSON or as a PNG.
+``analyse_skills`` does the work and returns a :class:`SkillReport`; the
+command line (``find_skills``) and the web interface both build on it.
 """
 
 from __future__ import annotations
 
+import io
 import json
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +18,73 @@ from .dates import describe_date_range, filter_date_range, parse_date_range
 from .deps import require
 from .logs import log
 from .matching import closest_titles, match_titles, normalise_text
+
+
+@dataclass
+class SkillReport:
+    """Everything that was found out about one job title."""
+
+    target: str
+    tier: str
+    level: str | None
+    range_text: str
+    matched: int
+    total: int
+    broad_matched: int = 0
+    counts: Any = None  # pandas Series: skill -> number of jobs
+    titles: Any = None  # pandas Series: job title -> number of jobs
+    level_counts: dict[str, int] = field(default_factory=dict)
+    suggestions: list[str] = field(default_factory=list)
+
+    @property
+    def skills_found(self) -> int:
+        """How many different skills the matched jobs ask for."""
+        return int(self.counts.size) if self.counts is not None else 0
+
+    def payload(self, top: int = 20, titles_limit: int = 0) -> dict[str, Any]:
+        """The report as a JSON friendly dictionary."""
+        skill_items = (
+            list(self.counts.head(top).items()) if self.counts is not None else []
+        )
+        title_items = (
+            list(self.titles.head(titles_limit).items())
+            if self.titles is not None
+            else []
+        )
+        return {
+            "target": self.target,
+            "match": self.tier,
+            "level": self.level or "any",
+            "date_range": self.range_text or "all dates",
+            "matched_jobs": self.matched,
+            "jobs_in_scope": self.total,
+            "skills_found": self.skills_found,
+            "levels": self.level_counts,
+            "skills": [
+                {
+                    "skill": str(skill),
+                    "jobs": int(count),
+                    "share": _share(int(count), self.matched),
+                }
+                for skill, count in skill_items
+            ],
+            "titles": [
+                {
+                    "title": str(title),
+                    "jobs": int(count),
+                    "share": _share(int(count), self.matched),
+                }
+                for title, count in title_items
+            ]
+            if titles_limit
+            else [],
+            "suggestions": self.suggestions,
+        }
+
+
+def _share(count: int, total: int) -> float:
+    """The share of ``count`` in ``total``, as a percentage."""
+    return round(count / total * 100, 2) if total else 0.0
 
 
 def skill_histogram(frame: Any, mask: Any) -> Any:
@@ -40,10 +108,9 @@ def render_histogram(counts: Any, total: int, top: int = 20, width: int = 36) ->
         print(f"  {skill:<24} {bar} {int(count):>7,}  {share:5.1f}%")
 
 
-def render_title_breakdown(frame: Any, mask: Any, total: int, limit: int = 50) -> None:
+def render_title_breakdown(breakdown: Any, total: int, limit: int = 50) -> None:
     """Print every job title that was included and how much it contributed."""
-    breakdown = frame.loc[mask, "title"].value_counts()
-    if breakdown.empty:
+    if breakdown is None or breakdown.empty:
         return
 
     print(
@@ -57,17 +124,11 @@ def render_title_breakdown(frame: Any, mask: Any, total: int, limit: int = 50) -
         print(f"  ... and {len(breakdown) - limit:,} more titles")
 
 
-def save_histogram_plot(
-    counts: Any, path: Path, target: str, total: int, top: int = 20
-) -> None:
-    """Write the histogram to a PNG file (matplotlib is optional)."""
-    try:
-        matplotlib = require("matplotlib", "writing the plot")
-        matplotlib.use("Agg")
-        import matplotlib.pyplot as plt
-    except RuntimeError as exc:
-        log.warning("%s", exc)
-        return
+def build_histogram_plot(counts: Any, target: str, total: int, top: int = 20) -> bytes:
+    """Render the histogram as PNG bytes (matplotlib is optional)."""
+    matplotlib = require("matplotlib", "writing the plot")
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
 
     selected = counts.head(top).sort_values()
     figure, axes = plt.subplots(figsize=(9, max(3, 0.32 * len(selected) + 1.4)))
@@ -84,32 +145,42 @@ def save_histogram_plot(
             fontsize=8,
         )
     figure.tight_layout()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    figure.savefig(path, dpi=150)
+    buffer = io.BytesIO()
+    figure.savefig(buffer, format="png", dpi=150)
     plt.close(figure)
+    return buffer.getvalue()
+
+
+def save_histogram_plot(
+    counts: Any, path: Path, target: str, total: int, top: int = 20
+) -> None:
+    """Write the histogram to a PNG file (matplotlib is optional)."""
+    try:
+        data = build_histogram_plot(counts, target, total, top)
+    except RuntimeError as exc:
+        log.warning("%s", exc)
+        return
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(data)
     log.info("plot written to %s", path)
 
 
-def find_skills(
+def analyse_skills(
     target: str,
     level: str | None = None,
-    top: int = 20,
     coverage: float = 0.6,
-    width: int = 36,
     loose: bool = False,
     date_range: str | None = None,
-    titles_limit: int = 0,
-    plot_path: Path | None = None,
-    as_json: bool = False,
-) -> int:
-    """Show the skills that are associated with ``target``.
+) -> SkillReport | None:
+    """Match ``target`` and collect the skills of the matching jobs.
 
-    Returns the number of matched jobs.
+    Returns ``None`` when there is no dataset to work with.
     """
     loaded = load_dataset_frame()
     if loaded is None:
         log.warning("no dataset found, run 'python main.py update' first")
-        return 0
+        return None
 
     frame, separator = loaded
     if separator != SKILL_SEPARATOR:
@@ -119,10 +190,10 @@ def find_skills(
             rework_dataset(config=Config())
         except (FileNotFoundError, RuntimeError) as exc:
             log.error("could not build the reworked dataset (%s)", exc)
-            return 0
+            return None
         loaded = load_dataset_frame()
         if loaded is None:
-            return 0
+            return None
         frame, separator = loaded
 
     titles = frame["title"]
@@ -144,7 +215,7 @@ def find_skills(
         if not level_mask.any():
             available = ", ".join(sorted(frame["level"].unique()))
             log.error("unknown level %r (available: %s)", level, available)
-            return 0
+            return None
         titles = titles[level_mask]
         frame = frame[level_mask]
 
@@ -155,81 +226,106 @@ def find_skills(
         mask, tier = match.mask, match.tier
 
     matched = int(mask.sum())
+    total = len(frame)
+    broad_matched = int(match.broad_mask.sum())
+
     if not matched:
         log.error("no job title matches %r", target)
-        suggestions = closest_titles(target, titles)
-        if suggestions:
+        return SkillReport(
+            target=target,
+            tier=tier,
+            level=level,
+            range_text=range_text,
+            matched=0,
+            total=total,
+            broad_matched=broad_matched,
+            suggestions=closest_titles(target, titles),
+        )
+
+    return SkillReport(
+        target=target,
+        tier=tier,
+        level=level,
+        range_text=range_text,
+        matched=matched,
+        total=total,
+        broad_matched=broad_matched,
+        counts=skill_histogram(frame, mask),
+        titles=frame.loc[mask, "title"].value_counts(),
+        level_counts={
+            str(name): int(count)
+            for name, count in frame.loc[mask, "level"].value_counts().items()
+        },
+    )
+
+
+def find_skills(
+    target: str,
+    level: str | None = None,
+    top: int = 20,
+    coverage: float = 0.6,
+    width: int = 36,
+    loose: bool = False,
+    date_range: str | None = None,
+    titles_limit: int = 0,
+    plot_path: Path | None = None,
+    as_json: bool = False,
+) -> int:
+    """Show the skills that are associated with ``target``.
+
+    Returns the number of matched jobs.
+    """
+    report = analyse_skills(
+        target,
+        level=level,
+        coverage=coverage,
+        loose=loose,
+        date_range=date_range,
+    )
+    if report is None:
+        return 0
+
+    matched = report.matched
+    if not matched:
+        if report.suggestions:
             print("\nDid you mean:")
-            for suggestion in suggestions:
+            for suggestion in report.suggestions:
                 print(f"  - {suggestion}")
         return 0
 
-    counts = skill_histogram(frame, mask)
-    total = len(frame)
+    counts = report.counts
+    total = report.total
 
     if as_json:
-        payload = {
-            "target": target,
-            "match": tier,
-            "level": level or "any",
-            "date_range": range_text or "all dates",
-            "matched_jobs": matched,
-            "jobs_in_scope": total,
-            "levels": {
-                str(name): int(count)
-                for name, count in frame.loc[mask, "level"].value_counts().items()
-            },
-            "skills": [
-                {
-                    "skill": str(skill),
-                    "jobs": int(count),
-                    "share": round(int(count) / matched * 100, 2),
-                }
-                for skill, count in counts.head(top).items()
-            ],
-            "titles": [
-                {
-                    "title": str(title),
-                    "jobs": int(count),
-                    "share": round(int(count) / matched * 100, 2),
-                }
-                for title, count in (
-                    frame.loc[mask, "title"]
-                    .value_counts()
-                    .head(titles_limit if titles_limit else None)
-                    .items()
-                    if titles_limit
-                    else []
-                )
-            ],
-        }
-        print(json.dumps(payload, indent=2))
+        print(json.dumps(report.payload(top=top, titles_limit=titles_limit), indent=2))
         return matched
 
-    print(f"\nTarget      : {target}")
-    print(f"Match       : {tier}")
-    if range_text:
-        print(f"Date range  : {range_text}")
+    print(f"\nTarget      : {report.target}")
+    print(f"Match       : {report.tier}")
+    if report.range_text:
+        print(f"Date range  : {report.range_text}")
     print(
         f"Jobs        : {matched:,} of {total:,} ({matched / total:.1%} of the dataset)"
     )
     if level is None:
-        mix = frame.loc[mask, "level"].value_counts()
         print(
             "Levels      : "
-            + ", ".join(f"{name or 'unknown'} {count:,}" for name, count in mix.items())
+            + ", ".join(
+                f"{name or 'unknown'} {count:,}"
+                for name, count in report.level_counts.items()
+            )
         )
-    print(f"Skills found: {counts.size:,}\n")
+    print(f"Skills found: {report.skills_found:,}\n")
     print(
         f"Top {min(top, len(counts))} skills (share of the {matched:,} matched jobs):\n"
     )
     render_histogram(counts, matched, top=top, width=width)
 
     if titles_limit:
-        render_title_breakdown(frame, mask, matched, limit=titles_limit)
+        render_title_breakdown(report.titles, matched, limit=titles_limit)
 
     if not loose:
-        broad = int(match.broad_mask.sum())
+        broad = report.broad_matched
         if broad > matched * 1.1:
             print(
                 f"\n(hint: a looser match would cover {broad:,} jobs, "
@@ -237,7 +333,7 @@ def find_skills(
             )
 
     if plot_path is not None:
-        save_histogram_plot(counts, plot_path, target, matched, top=top)
+        save_histogram_plot(counts, plot_path, report.target, matched, top=top)
 
     print()
     return matched

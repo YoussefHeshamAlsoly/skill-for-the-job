@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>skill-for-the-job</title>
+  <meta name="description" content="What does a job title ask for? The skills of every matching listing.">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%230b0d11'/><rect x='7' y='16' width='4' height='9' rx='1' fill='%2356b6ff'/><rect x='14' y='11' width='4' height='14' rx='1' fill='%2356b6ff'/><rect x='21' y='7' width='4' height='18' rx='1' fill='%2356b6ff'/></svg>">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo" aria-hidden="true">
+        <i></i><i></i><i></i>
+      </span>
+      <div class="brand-text">
+        <h1>skill&#8209;for&#8209;the&#8209;job</h1>
+        <p>Pick a job title, see the skills the listings ask for.</p>
+      </div>
+    </div>
+    <div class="topbar-right">
+      <div class="chip" id="dataset-chip" data-tip="The dataset the results are computed from.">
+        <span class="dot"></span><span id="dataset-label">loading&hellip;</span>
+      </div>
+      <button type="button" class="icon-button" id="theme-toggle"
+              data-tip="Switch between the dark and the light theme."
+              aria-label="Switch the theme">
+        <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+          <path class="sun" d="M12 4V2m0 20v-2m8-8h2M2 12h2m13.66-5.66 1.42-1.42M4.92 19.08l1.42-1.42m0-11.32L4.92 4.92m14.16 14.16-1.42-1.42M16 12a4 4 0 1 1-8 0 4 4 0 0 1 8 0Z"/>
+          <path class="moon" d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z"/>
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <!-- ------------------------------------------------------------------ -->
+    <!-- Filters                                                              -->
+    <!-- ------------------------------------------------------------------ -->
+    <aside class="panel filters" aria-label="Filters">
+      <div class="panel-head">
+        <h2>Filters</h2>
+        <button type="button" class="link-button" id="reset"
+                data-tip="Put every option back to its default.">Reset</button>
+      </div>
+
+      <div class="field">
+        <label for="target" data-tip="The job title to look for, e.g. &quot;software engineer&quot;. The titles in the dataset are matched against it.">
+          Job title <span class="required">*</span>
+        </label>
+        <div class="input-wrap">
+          <input type="text" id="target" list="title-suggestions" autocomplete="off"
+                 placeholder="software engineer" spellcheck="false">
+          <datalist id="title-suggestions"></datalist>
+        </div>
+        <div class="suggestions" id="suggestions" hidden></div>
+        <p class="hint" id="target-hint">Start typing to see the titles in the dataset.</p>
+      </div>
+
+      <div class="field">
+        <label for="level" data-tip="Only look at one seniority. &quot;Any&quot; looks at every level of the dataset.">
+          Seniority
+        </label>
+        <select id="level">
+          <option value="">Any</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label for="range" data-tip="Only include the listings that were posted inside the chosen period. The filter uses the posting date of the job.">
+          Date range
+        </label>
+        <select id="range"></select>
+        <div class="date-custom" id="date-custom" hidden>
+          <input type="date" id="date-from" data-tip="The oldest posting date to include.">
+          <span class="dash">&ndash;</span>
+          <input type="date" id="date-to" data-tip="The newest posting date to include.">
+        </div>
+        <p class="hint" id="range-hint">Every posting date in the dataset.</p>
+      </div>
+
+      <div class="field">
+        <span class="label" data-tip="How strict the title has to match. Loose also accepts the listings that share most of the keywords.">
+          Match mode
+        </span>
+        <div class="segmented" role="radiogroup" aria-label="Match mode">
+          <label class="segment"
+                 data-tip="Only the listings whose title really is the one you asked for.">
+            <input type="radio" name="loose" value="0" checked>
+            <span>Strict</span>
+          </label>
+          <label class="segment"
+                 data-tip="Also includes the listings that share most of the keywords of your title.">
+            <input type="radio" name="loose" value="1">
+            <span>Loose</span>
+          </label>
+        </div>
+      </div>
+
+      <div class="field" id="coverage-field" data-disabled="true">
+        <label for="coverage" data-tip="How many of the keywords of your title have to appear in a listing to count it. Only used in loose mode.">
+          Keyword overlap <output id="coverage-value">60%</output>
+        </label>
+        <input type="range" id="coverage" min="10" max="100" step="5" value="60" disabled>
+      </div>
+
+      <div class="field">
+        <label for="top" data-tip="How many skills are shown in the histogram. The list always contains every skill that was found.">
+          Skills to show <output id="top-value">20</output>
+        </label>
+        <input type="range" id="top" min="5" max="60" step="1" value="20">
+      </div>
+
+      <div class="field">
+        <span class="label" data-tip="List the job titles that were included, with the number of listings each of them contributed.">
+          Job titles
+        </span>
+        <div class="inline">
+          <label class="switch"
+                 data-tip="Show the breakdown of the job titles that were matched.">
+            <input type="checkbox" id="show-titles">
+            <span class="slider"></span>
+            <span class="switch-label">Show the breakdown</span>
+          </label>
+          <input type="number" id="titles-limit" min="1" max="500" value="25" disabled
+                 data-tip="How many job titles the breakdown may list.">
+        </div>
+      </div>
+
+      <div class="actions">
+        <button type="button" class="button primary" id="search"
+                data-tip="Run the search with the options above.">
+          Search
+        </button>
+        <button type="button" class="button" id="export-json"
+                data-tip="Download the result as a JSON file." disabled>
+          Export JSON
+        </button>
+        <button type="button" class="button" id="download-png"
+                data-tip="Download the histogram as a PNG image." disabled>
+          Download PNG
+        </button>
+      </div>
+    </aside>
+
+    <!-- ------------------------------------------------------------------ -->
+    <!-- Results                                                             -->
+    <!-- ------------------------------------------------------------------ -->
+    <section class="results" aria-label="Results">
+      <div class="summary" id="summary" hidden>
+        <div class="summary-main">
+          <h2 id="summary-title">Software Engineer</h2>
+          <p id="summary-sub" class="muted"></p>
+        </div>
+        <div class="summary-stats" id="summary-stats"></div>
+      </div>
+
+      <div class="panel chart-panel">
+        <div class="panel-head">
+          <h3 id="chart-title">Top skills</h3>
+          <span class="muted small" id="chart-note"></span>
+        </div>
+        <div class="chart" id="chart"></div>
+        <p class="empty" id="chart-empty">
+          Pick a job title on the left and press <kbd>Search</kbd>.
+        </p>
+      </div>
+
+      <div class="panel" id="titles-panel" hidden>
+        <div class="panel-head">
+          <h3>Job titles that were included</h3>
+          <span class="muted small" id="titles-note"></span>
+        </div>
+        <div class="table-wrap">
+          <table class="titles-table">
+            <thead>
+              <tr><th>Job title</th><th class="num">Listings</th><th class="num">Share</th></tr>
+            </thead>
+            <tbody id="titles-body"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="panel" id="suggestions-panel" hidden>
+        <div class="panel-head"><h3>Did you mean</h3></div>
+        <ul class="suggestion-list" id="suggestion-list"></ul>
+      </div>
+    </section>
+  </main>
+
+  <div class="tooltip" id="tooltip" role="tooltip" aria-hidden="true"></div>
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>

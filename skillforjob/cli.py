@@ -8,6 +8,7 @@ stages:
 ``stats``    summarise the dataset
 ``doctor``   report the interpreter, the dependencies and the datasets
 ``skills``   show the skills associated with a target job title
+``serve``    start the web interface
 """
 
 from __future__ import annotations
@@ -124,6 +125,31 @@ def build_parser() -> argparse.ArgumentParser:
         help="also match the titles that only share most of the keywords",
     )
     skills.add_argument("--json", action="store_true", help="print the result as JSON")
+
+    serve = sub.add_parser(
+        "serve",
+        parents=[common],
+        help="start the web interface in the browser",
+    )
+    serve.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help="the address to listen on (default: 127.0.0.1, use 0.0.0.0 for the network)",
+    )
+    serve.add_argument(
+        "--port", type=int, default=5000, help="the port to listen on (default: 5000)"
+    )
+    serve.add_argument(
+        "--debug",
+        action="store_true",
+        help="run the development server with the debugger and the reloader",
+    )
+    serve.add_argument(
+        "--open",
+        dest="open_browser",
+        action="store_true",
+        help="open the page in the default browser",
+    )
     return parser
 
 
@@ -198,6 +224,17 @@ def main(argv: list[str] | None = None) -> int:
             log.error("%s", exc)
             return 1
         return 0 if found else 1
+
+    if command == "serve":
+        # Imported here so that the other commands do not need Flask.
+        from .web.app import run_server
+
+        return run_server(
+            host=args.host,
+            port=args.port,
+            debug=args.debug,
+            open_browser=args.open_browser,
+        )
 
     return 0
 
