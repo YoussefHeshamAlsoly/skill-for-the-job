@@ -3,6 +3,25 @@
 Job listings from Kaggle ([`chandranshbinjola/job-listings`](https://www.kaggle.com/datasets/chandranshbinjola/job-listings)),
 normalised into a compact dataset that can be matched against a list of skills.
 
+> **TL;DR**
+>
+> - **`python main.py serve`** opens a web interface in the browser: pick a job
+>   title, adjust the filters and see the skills that the matching listings ask
+>   for, as a histogram.
+> - **`python main.py skills "software engineer"`** does the same from the
+>   terminal, with `--loose`, `--level`, `--range`, `--titles`, `--plot` and
+>   `--json`.
+> - **`python main.py update`** refreshes the dataset from Kaggle and
+>   **`python main.py doctor`** shows which interpreter and packages are in
+>   use.
+
+![The web interface with all the filters](resources/Screenshot1.png)
+
+<div align="center">
+  <img src="resources/Screenshot2.png" alt="The result of a search" width="49%">
+  <img src="resources/Screenshot2_light.png" alt="The same result in the light theme" width="49%">
+</div>
+
 ## Setup
 
 ```bash
@@ -209,6 +228,8 @@ opens it right away, `--host 0.0.0.0` makes it reachable from the network and
 The page is dark by default (a sun in the header switches to the light theme)
 and every control has a help text that appears when you hover or focus it.
 
+![The web interface with all the filters](resources/Screenshot1.png)
+
 | Control | What it does |
 | --- | --- |
 | Job title | the title to look for, with suggestions from the dataset |
@@ -226,6 +247,12 @@ so both interfaces filter the dataset in exactly the same way.
 
 The result can be shared: the address bar keeps the current search
 (`?q=software+engineer&level=senior&loose=1&top=30`) and opens it again.
+
+![The result of a search](resources/Screenshot2.png)
+
+The same result in the light theme:
+
+![The result of a search in the light theme](resources/Screenshot2_light.png)
 
 ### The API
 
